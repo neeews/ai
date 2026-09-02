@@ -1,0 +1,6 @@
+venv/
+models/
+data/
+*.log
+__pycache__/
+.deploy.env
