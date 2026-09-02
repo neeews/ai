@@ -21,9 +21,51 @@ import urllib.request
 from collections import Counter
 from pathlib import Path
 
-from config import AUTO_LABEL_PATH, LABEL_NAMES, OLLAMA_MODEL, OLLAMA_URL, RAW_PATH
+from config import (
+    AUTO_LABEL_PATH,
+    LABEL_NAMES,
+    LABEL_SCHEME,
+    NUM_LABELS,
+    OLLAMA_MODEL,
+    OLLAMA_URL,
+    RAW_PATH,
+)
 
-PROMPT = """당신은 뉴스 편집장이다. 아래 기사의 중요도를 0~4 중 하나로 평가하라.
+PROMPT_3 = """당신은 뉴스 편집장이다. 아래 기사의 중요도를 0, 1, 2 중 하나로 평가하라.
+
+[등급 기준]
+2 = 중요: 다수에게 실질적 영향. 주요 정책·법안, 대형 사건사고, 재난, 국가 단위 정치·경제 변화
+1 = 보통: 특정 산업·집단에 의미 있음. 업계 판도를 바꾸는 기업 소식, 주요 지역 행정, 굵직한 국제 동향
+0 = 낮음: 소수 관심사이거나 정보 가치가 없음. 개별 기업의 일상 소식, 홍보성 기사,
+    기부·시상, 지점 개설, 연예인 근황, 인사 발령, 단순 시황, 부고, 날씨 단신
+
+[매우 중요한 규칙]
+목표 분포는 0등급 약 35%, 1등급 약 40%, 2등급 약 25% 다. 2를 아껴서 써라.
+"전 국민 다수가 오늘 알아야 하는가?"에 아니오면 2를 주지 마라.
+두 등급 사이에서 망설여지면 반드시 낮은 쪽을 골라라.
+제목이 거창해도 내용이 한 회사의 홍보면 0이다.
+
+[예시]
+"스마일게이트 로드나인, 지역 어르신 지원 기부금 전달" -> 0
+"메리츠증권, 부산금융센터 해운대로 이전 오픈" -> 0
+"하나은행, 미국으로 해외 송금 단 1분만에" -> 0
+"국토부 대광위원장, 전주 기린대로 간선급행버스체계 현장 점검" -> 0
+"모더나 mRNA 항암 백신에 열광…암 정복까진 갈 길 멀다" -> 1
+"백악관, 빅테크와 AI 안전성 시험 체계 논의" -> 1
+"푸틴 러일 관계 악화는 일본 책임…日 우크라이나 침공 탓" -> 1
+"법원, 홈플러스 회생계획안 인가…공익채권자 75.9% 동의" -> 2
+"부산시, 예인선 전복 사고수습본부 가동…구조에 총력" -> 2
+"정부, 종합부동산세 개편안 발표…1주택자 세부담 30% 경감" -> 2
+
+[기사]
+카테고리: {category}
+제목: {title}
+본문: {body}
+
+숫자 하나만 출력하라. 설명, 문장, 기호를 붙이지 마라.
+답:"""
+
+PROMPT_5 = """당신은 뉴스 편집장이다. 아래 기사의 중요도를 0~4 중 하나로 평가하라.
 
 [등급 기준]
 4 = 매우 중요: 전 국민·국제적 영향. 대규모 재난, 전쟁, 금리 급변, 국가 단위 정치 격변
@@ -57,6 +99,9 @@ PROMPT = """당신은 뉴스 편집장이다. 아래 기사의 중요도를 0~4 
 숫자 하나만 출력하라. 설명, 문장, 기호를 붙이지 마라.
 답:"""
 
+# config.LABEL_SCHEME 에 맞는 프롬프트를 고른다
+PROMPT = PROMPT_3 if LABEL_SCHEME == "3" else PROMPT_5
+
 
 def load_jsonl(path) -> list[dict]:
     if not path.exists():
@@ -82,7 +127,7 @@ def ask_ollama(url: str, model: str, prompt: str, timeout: int) -> str:
 
 def parse_label(text: str) -> int | None:
     """모델이 '답: 3' 이나 '3점' 처럼 답해도 첫 숫자를 뽑아낸다."""
-    m = re.search(r"[0-4]", text)
+    m = re.search(rf"[0-{NUM_LABELS - 1}]", text)
     return int(m.group()) if m else None
 
 
@@ -154,12 +199,12 @@ def main() -> None:
                 elapsed = time.time() - started
                 speed = i / elapsed
                 remain = (len(todo) - i) / speed if speed else 0
-                dist = " ".join(f"{lv}:{counts.get(lv, 0)}" for lv in range(5))
+                dist = " ".join(f"{lv}:{counts.get(lv, 0)}" for lv in sorted(LABEL_NAMES))
                 print(f"  {i}/{len(todo)}  {speed:.2f}건/초  남은시간 {remain / 60:.0f}분  [{dist}]",
                       flush=True)
 
     print(f"\n완료: 성공 {sum(counts.values())}건, 실패 {failed}건 → {out_path}")
-    for lv in range(5):
+    for lv in sorted(LABEL_NAMES):
         print(f"  {lv} {LABEL_NAMES[lv]:<10} {counts.get(lv, 0):>5}건")
 
 

@@ -21,7 +21,10 @@ import random
 from collections import Counter
 from datetime import datetime, timezone
 
-from config import AUTO_LABEL_PATH, LABEL_NAMES, LABELED_PATH, RAW_PATH, ROOT, SEED
+from config import AUTO_LABEL_PATH, LABEL_NAMES, LABELED_PATH, NUM_LABELS, RAW_PATH, ROOT, SEED
+
+VALID_KEYS = {str(i) for i in LABEL_NAMES}
+KEY_HINT = " / ".join(f"{i} {name}" for i, name in sorted(LABEL_NAMES.items(), reverse=True))
 
 
 def load_jsonl(path) -> list[dict]:
@@ -51,11 +54,11 @@ def print_stats(labels: list[dict]) -> None:
     counts = Counter(row["label"] for row in labels)
     total = len(labels)
     print(f"\n라벨 분포 (총 {total}건)")
-    for lv in range(5):
+    for lv in sorted(LABEL_NAMES):
         n = counts.get(lv, 0)
         bar = "█" * int(n / max(total, 1) * 40)
         print(f"  {lv} {LABEL_NAMES[lv]:<10} {n:>5}건 {bar}")
-    weak = [lv for lv in range(5) if counts.get(lv, 0) < 30]
+    weak = [lv for lv in LABEL_NAMES if counts.get(lv, 0) < 30]
     if weak:
         print(f"\n  ⚠ 30건 미만 등급: {weak} — 이 등급은 평가 신뢰도가 낮습니다.")
 
@@ -130,7 +133,7 @@ def main() -> None:
         todo = todo[:args.limit]
 
     print(f"\n라벨 대상 {len(todo)}건 (이미 완료 {len(labels)}건)")
-    print("4 매우중요 / 3 높음 / 2 보통 / 1 낮음 / 0 무시   ·   s 건너뛰기  u 취소  g 기준  q 종료")
+    print(f"{KEY_HINT}   ·   s 건너뛰기  u 취소  g 기준  q 종료")
 
     done = len(labels)
     session_rows: list[dict] = []
@@ -141,7 +144,8 @@ def main() -> None:
         show_article(article, idx, len(todo), done, suggested)
 
         while True:
-            prompt = "중요도 [0-4/s/u/g/q]" + ("(Enter=제안) > " if suggested is not None else " > ")
+            keys = f"0-{NUM_LABELS - 1}"
+            prompt = f"중요도 [{keys}/s/u/g/q]" + ("(Enter=제안) > " if suggested is not None else " > ")
             try:
                 key = input(prompt).strip().lower()
             except (EOFError, KeyboardInterrupt):
@@ -170,7 +174,7 @@ def main() -> None:
                 done -= 1
                 print(f"  취소됨: [{removed['label']}] {removed['title'][:40]}")
                 continue
-            if key in {"0", "1", "2", "3", "4"}:
+            if key in VALID_KEYS:
                 row = {
                     "id": aid,
                     "label": int(key),
@@ -188,7 +192,7 @@ def main() -> None:
                     mark = "  (LLM 일치)" if int(key) == suggested else f"  (LLM {suggested} → 수정)"
                 print(f"  ✓ {key} ({LABEL_NAMES[int(key)]}){mark}")
                 break
-            print("  0~4, s, u, g, q 중 하나를 입력하세요.")
+            print(f"  0~{NUM_LABELS - 1}, s, u, g, q 중 하나를 입력하세요.")
 
     print("\n이번 세션 라벨링을 마쳤습니다.")
     print_stats(load_jsonl(LABELED_PATH))

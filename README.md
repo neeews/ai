@@ -1,6 +1,15 @@
 # 뉴스 중요도 분류 (KoELECTRA 파인튜닝)
 
-뉴스 기사를 읽고 중요도를 **0~4 다섯 등급**으로 판정하는 모델. `neeews` DB의 기사 79,866건을 학습 데이터로 쓴다.
+뉴스 기사를 읽고 중요도를 판정하는 모델. `neeews` DB의 기사 79,866건을 학습 데이터로 쓴다.
+
+등급 체계는 `config.py` 의 `LABEL_SCHEME` 하나로 바뀐다.
+
+| 값 | 등급 | 비고 |
+|---|---|---|
+| `"3"` (기본) | 0 낮음 / 1 보통 / 2 중요 | 백엔드 `Importance` enum(LOW/MEDIUM/HIGH)과 1:1 |
+| `"5"` | 0 무시 / 1 낮음 / 2 보통 / 3 높음 / 4 매우중요 | 더 세분화된 랭킹이 필요할 때 |
+
+바꾸면 라벨링 CLI·프롬프트·학습·평가가 전부 따라 바뀐다.
 
 ## 실행 환경
 
@@ -28,6 +37,7 @@ DB 접속 정보는 백엔드의 `~/backend/.env` 를 그대로 읽는다
 ## 전체 흐름
 
 ```
+import_labels.py  백엔드가 만든 기존 라벨 반입  data/labeled/labels.jsonl
 export_db.py   DB → 라벨링할 기사 풀        data/raw/articles.jsonl
      ↓
 autolabel.py   LLM이 0~4 자동 라벨 (학습용)  data/labeled/auto_labels.jsonl
@@ -43,6 +53,18 @@ predict.py     새 기사 중요도 예측
 **핵심 원칙**: 학습 라벨은 LLM이 대량으로 만들고, **평가 라벨은 사람이 만든다.**
 LLM 라벨로 평가하면 "KoELECTRA가 exaone을 얼마나 잘 흉내내나"만 측정되고,
 LLM이 틀린 부분을 영영 발견하지 못한다.
+
+## 0. 기존 라벨 반입
+
+백엔드가 이미 매겨 둔 라벨(`article_importance_labels` 테이블 / `labels/importance_seed.csv`)이 있으면
+먼저 가져온다. 라벨만 있고 본문이 없으므로 기사 id로 DB에서 본문을 채워 넣는다.
+
+```bash
+python import_labels.py --from-db          # DB 테이블에서
+python import_labels.py --csv path/to/importance_seed.csv --dry-run
+```
+
+`LOW/MEDIUM/HIGH` → 정수 라벨 변환은 `config.py` 의 `BACKEND_TO_LABEL` 이 담당한다.
 
 ## 1. 기사 추출
 
@@ -135,7 +157,8 @@ python predict.py --text "제목
 | `prepare_dataset.py` | train/val/test 분할 |
 | `train.py` | KoELECTRA 파인튜닝 |
 | `predict.py` | 추론 |
-| `LABELING_GUIDE.md` | 0~4 판정 기준 |
+| `import_labels.py` | 백엔드 라벨(LOW/MEDIUM/HIGH) 반입 |
+| `LABELING_GUIDE.md` | 등급 판정 기준 |
 | `sync.sh` | 로컬 → 서버 코드 동기화 |
 
 ## 알아둘 것

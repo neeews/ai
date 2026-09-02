@@ -86,7 +86,7 @@ def stratified_split(rows: list[dict], ratios: tuple[float, float], seed: int):
 
 def describe(name: str, rows: list[dict]) -> None:
     counts = Counter(r["label"] for r in rows)
-    dist = "  ".join(f"{lv}:{counts.get(lv, 0)}" for lv in range(5))
+    dist = "  ".join(f"{lv}:{counts.get(lv, 0)}" for lv in sorted(LABEL_NAMES))
     print(f"  {name:<6} {len(rows):>6}건   [{dist}]")
 
 
@@ -142,10 +142,10 @@ def main() -> None:
     all_rows = train + val + test
     counts = Counter(r["label"] for r in all_rows)
     print("\n전체 등급 분포")
-    for lv in range(5):
+    for lv in sorted(LABEL_NAMES):
         n = counts.get(lv, 0)
         print(f"  {lv} {LABEL_NAMES[lv]:<10} {n:>6}건" + ("   ⚠ 부족" if n < 20 else ""))
-    if any(counts.get(lv, 0) == 0 for lv in range(5)):
+    if any(counts.get(lv, 0) == 0 for lv in LABEL_NAMES):
         print("\n  ⚠ 데이터가 0건인 등급이 있습니다. 모델은 그 등급을 절대 예측하지 못합니다.")
     if not test:
         print("\n  ⚠ test 가 비었습니다. `python3 label.py` 로 평가용 라벨을 만드세요.")
