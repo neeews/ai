@@ -78,6 +78,29 @@ python export_db.py --n 3000 --min-len 300
 
 ## 2-a. LLM 자동 라벨링 (학습용)
 
+**먼저 이게 쓸 만한지부터 재라.** 사람 라벨이 조금이라도 있으면 그것에만 자동 라벨을 돌려
+일치율을 확인한 뒤에 전체를 돌린다. 안 그러면 6시간 돌리고 못 쓰는 라벨을 얻는다.
+
+```bash
+python autolabel.py --only-labeled --strategy cascade --out data/labeled/try1.jsonl
+python eval_autolabel.py --auto data/labeled/try1.jsonl --split dev       # 프롬프트 고칠 때
+python eval_autolabel.py --auto data/labeled/try1.jsonl --split holdout   # 최종 확인
+```
+
+프롬프트는 `dev` 만 보고 고치고 `holdout` 으로 확인한다.
+고치면서 같은 데이터로 재면 좋아 보이기만 한다.
+
+### 측정 결과 (exaone3.5:2.4b, 3단계, 사람 라벨 100건 기준 / holdout 50건)
+
+| 방식 | 일치율 | 비고 |
+|---|---|---|
+| 등급을 한 번에 물음 | 32% | 우연 수준(33%). 66%를 '중요'로 몰아버림 |
+| 판정 절차를 자세히 준 프롬프트 | 26% | 더 나빠짐 — 2.4B 모델은 다단계 채점표를 못 따라감 |
+| **예/아니오 두 번 (`--strategy cascade`)** | **44%** | 편향도 사라짐. 작은 모델은 다지선다보다 이분 판단에 강하다 |
+
+`cascade` 는 "지역·개인 한정 소식인가?" → 예면 0, 아니면 "1면 머리기사감인가?" → 예면 2, 아니면 1.
+
+
 ```bash
 nohup python autolabel.py > autolabel.log 2>&1 &
 tail -f autolabel.log

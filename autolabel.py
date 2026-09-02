@@ -24,6 +24,7 @@ from pathlib import Path
 from config import (
     AUTO_LABEL_PATH,
     LABEL_NAMES,
+    LABELED_PATH,
     LABEL_SCHEME,
     NUM_LABELS,
     OLLAMA_MODEL,
@@ -31,33 +32,57 @@ from config import (
     RAW_PATH,
 )
 
-PROMPT_3 = """당신은 뉴스 편집장이다. 아래 기사의 중요도를 0, 1, 2 중 하나로 평가하라.
+PROMPT_3 = """당신은 전국 종합일간지의 1면 편집장이다. 아래 기사의 중요도를 0, 1, 2 중 하나로 매겨라.
 
-[등급 기준]
-2 = 중요: 다수에게 실질적 영향. 주요 정책·법안, 대형 사건사고, 재난, 국가 단위 정치·경제 변화
-1 = 보통: 특정 산업·집단에 의미 있음. 업계 판도를 바꾸는 기업 소식, 주요 지역 행정, 굵직한 국제 동향
-0 = 낮음: 소수 관심사이거나 정보 가치가 없음. 개별 기업의 일상 소식, 홍보성 기사,
-    기부·시상, 지점 개설, 연예인 근황, 인사 발령, 단순 시황, 부고, 날씨 단신
+기준은 단 하나: **이 기사가 전국 독자에게 얼마나 중요한가.**
+기사가 슬프거나 자극적인 것과 중요한 것은 완전히 다르다.
 
-[매우 중요한 규칙]
-목표 분포는 0등급 약 35%, 1등급 약 40%, 2등급 약 25% 다. 2를 아껴서 써라.
-"전 국민 다수가 오늘 알아야 하는가?"에 아니오면 2를 주지 마라.
-두 등급 사이에서 망설여지면 반드시 낮은 쪽을 골라라.
-제목이 거창해도 내용이 한 회사의 홍보면 0이다.
+[판정 절차 — 위에서부터 순서대로 적용하고, 걸리면 즉시 확정한다]
+
+1단계. 다음에 하나라도 해당하면 무조건 **0**이다.
+   - 특정 시·군·구·읍·면 단위의 소식 (지역 의회 건의안, 조례 발의, 지역 행사, 지역 민원)
+   - 개인 한 명의 사고·부상·사망·입건 (교통사고, 추락, 실족)
+   - 특정 학교·대학·기관 내부의 일 (실험실 화재, 역명 변경 요청, 돌봄 프로그램)
+   - 부고, 인사, 수상·포장, 기부·나눔, 봉사
+   - 연예·문화·스포츠의 인터뷰, 신작 소개, 감독·선수 코멘트
+   - 특정 기업 한 곳의 홍보성 소식 (신제품, 지점 개설, 수상)
+   → 사람이 죽은 사고라도 지역의 개별 사고면 0이다. 냉정하게 판단하라.
+
+2단계. 다음에 해당하면 **2**다. 여기 해당하지 않으면 절대 2를 주지 마라.
+   - 전국 단위 정치 일정·격돌 (인사청문회, 국회 본회의, 대선·총선)
+   - 장관·국회의원·검찰 고위직 등 유력 인사의 비리·의혹·기소
+   - 사망·실종자가 여러 명인 대형 참사
+   - 국민 다수가 아는 대기업의 존폐 (회생, 파산, 대규모 구조조정)
+   - 사법·수사 제도 자체를 바꾸는 사건 (검찰 개편, 대법원 판례 변경)
+
+3단계. 위 둘 다 아니면 **1**이다.
+   - 산업·경제 동향, 금리·환율·시황, 기업 간 분쟁
+   - 해외 뉴스 (국제 정상외교, 해외 사건사고, 해외 재판)
+   - 개별 형사사건의 재판 결과, 검찰 송치
+   - 특정 산업·집단이 입은 피해
+
+[반드시 기억할 것]
+당신은 중요도를 **과대평가하는 경향**이 있다. 실제 분포는 0이 35%, 1이 40%, 2가 25%다.
+망설여지면 무조건 낮은 쪽을 골라라. 특히 2를 줄지 1을 줄지 망설이면 1이다.
 
 [예시]
-"스마일게이트 로드나인, 지역 어르신 지원 기부금 전달" -> 0
-"메리츠증권, 부산금융센터 해운대로 이전 오픈" -> 0
-"하나은행, 미국으로 해외 송금 단 1분만에" -> 0
-"국토부 대광위원장, 전주 기린대로 간선급행버스체계 현장 점검" -> 0
-"모더나 mRNA 항암 백신에 열광…암 정복까진 갈 길 멀다" -> 1
-"백악관, 빅테크와 AI 안전성 시험 체계 논의" -> 1
-"푸틴 러일 관계 악화는 일본 책임…日 우크라이나 침공 탓" -> 1
-"법원, 홈플러스 회생계획안 인가…공익채권자 75.9% 동의" -> 2
-"부산시, 예인선 전복 사고수습본부 가동…구조에 총력" -> 2
-"정부, 종합부동산세 개편안 발표…1주택자 세부담 30% 경감" -> 2
+"의령군의회 농어촌 기본소득 단계적 확대·법제화해야 건의안" -> 0
+"경기 광주서 농지 조사하던 50대 트럭에 치여 사망…운전자 입건" -> 0
+"성균관대학교 자연과학캠퍼스 실험실서 불…인명피해 없어" -> 0
+"[충북소식] 오경숙 도 양성평등가족정책관 국민포장" -> 0
+"구미 여름방학 틈새돌봄 8천500명 이용…겨울도 운영" -> 0
+"김원형 두산 감독, 사구에도 1루로 향한 김민석에 근성 보여줘" -> 0
+"유가 급등·대외금리 상승에 국고채 금리↑…3년물 연 3.930%" -> 1
+"시진핑, 10년 만의 이집트 국빈방문…미·중 정상회담 앞두고" -> 1
+"홍콩 민주화운동가 조슈아 웡, 외국과 공모 혐의 유죄 인정" -> 1
+"박대준 쿠팡 전 대표 국회 위증 혐의 검찰 송치" -> 1
+"식약처, 잔류농약 기준 초과 중국산 목이버섯 회수" -> 1
+"추석 연휴 한주 전 인사청문 슈퍼위크…여야 격돌 예고" -> 2
+"부산 앞바다 예인선 전복 사고…1명 사망·6명 실종" -> 2
+"법원, 홈플러스 회생계획안 인가…채권자 3분의 2 이상 동의" -> 2
+"검찰, 박성주 전 국수본부장 기소…장윤기 부실수사 지휘 혐의" -> 2
 
-[기사]
+[평가할 기사]
 카테고리: {category}
 제목: {title}
 본문: {body}
@@ -99,6 +124,39 @@ PROMPT_5 = """당신은 뉴스 편집장이다. 아래 기사의 중요도를 0~
 숫자 하나만 출력하라. 설명, 문장, 기호를 붙이지 마라.
 답:"""
 
+# --- 이분 질문 방식 ---
+# 작은 모델은 3지선다 채점표를 따라가지 못하고 전부 "중요"로 몰아버린다.
+# 대신 예/아니오 질문 두 번으로 쪼개면 각 판단이 단순해져 훨씬 잘 따라온다.
+
+Q_LOCAL = """다음 뉴스가 특정 지역(시·군·구), 특정 개인 한 명, 또는 특정 기관 내부에만
+관련된 소식이면 Y, 전국 독자에게 의미가 있으면 N 이라고 답하라.
+
+Y 인 것들: 지역 의회 건의안·조례, 지역 행사·민원, 개인의 교통사고·추락사고,
+특정 학교의 화재, 부고, 인사·수상, 기부·봉사, 연예인·감독 인터뷰, 한 기업의 홍보
+
+N 인 것들: 전국 정치, 국가 경제·금리, 해외 뉴스, 산업 전반 동향, 대기업의 존폐, 대형 참사
+
+제목: {title}
+본문: {body}
+
+Y 또는 N 한 글자만 출력하라."""
+
+Q_FRONTPAGE = """다음 뉴스가 오늘 전국 종합일간지 **1면 머리기사**가 될 만하면 Y,
+안쪽 지면에 실릴 정도면 N 이라고 답하라.
+
+Y 인 것들: 국회 인사청문·본회의 격돌, 장관·검찰 고위직의 비리·기소,
+사망·실종자 여러 명인 대형 참사, 국민 다수가 아는 대기업의 회생·파산, 사법제도 개편
+
+N 인 것들: 금리·환율·시황, 해외 정상외교, 해외 사건사고, 개별 형사사건 판결·송치,
+특정 산업의 피해, 기업 간 분쟁, 제품 회수
+
+1면 머리기사는 하루에 한두 건뿐이다. 애매하면 N 이다.
+
+제목: {title}
+본문: {body}
+
+Y 또는 N 한 글자만 출력하라."""
+
 # config.LABEL_SCHEME 에 맞는 프롬프트를 고른다
 PROMPT = PROMPT_3 if LABEL_SCHEME == "3" else PROMPT_5
 
@@ -125,6 +183,34 @@ def ask_ollama(url: str, model: str, prompt: str, timeout: int) -> str:
         return json.loads(resp.read()).get("response", "")
 
 
+def parse_yes(text: str) -> bool | None:
+    """Y/N 응답을 읽는다. 모델이 '예'/'아니오'로 답해도 받아준다."""
+    t = text.strip().upper()
+    if not t:
+        return None
+    if t.startswith(("Y", "예")) or "YES" in t:
+        return True
+    if t.startswith(("N", "아니")) or "NO" in t:
+        return False
+    return None
+
+
+def label_by_cascade(url: str, model: str, article: dict, body_chars: int, timeout: int) -> int | None:
+    """질문 두 번으로 등급을 정한다. 지역·개인 소식이면 0, 1면감이면 2, 나머지는 1."""
+    fields = {"title": article["title"], "body": (article.get("body") or "")[:body_chars]}
+
+    is_local = parse_yes(ask_ollama(url, model, Q_LOCAL.format(**fields), timeout))
+    if is_local is None:
+        return None
+    if is_local:
+        return 0
+
+    is_front = parse_yes(ask_ollama(url, model, Q_FRONTPAGE.format(**fields), timeout))
+    if is_front is None:
+        return None
+    return 2 if is_front else 1
+
+
 def parse_label(text: str) -> int | None:
     """모델이 '답: 3' 이나 '3점' 처럼 답해도 첫 숫자를 뽑아낸다."""
     m = re.search(rf"[0-{NUM_LABELS - 1}]", text)
@@ -136,9 +222,13 @@ def main() -> None:
     parser.add_argument("--model", default=OLLAMA_MODEL)
     parser.add_argument("--url", default=OLLAMA_URL)
     parser.add_argument("--limit", type=int, help="이번 실행에서 처리할 최대 건수")
+    parser.add_argument("--only-labeled", action="store_true",
+                        help="사람이 라벨한 기사에만 실행 — 프롬프트 정확도 측정용")
     parser.add_argument("--body-chars", type=int, default=1200,
                         help="본문을 몇 자까지 넣을지. 짧을수록 빠르다 (기본 1200)")
     parser.add_argument("--timeout", type=int, default=180)
+    parser.add_argument("--strategy", choices=["single", "cascade"], default="single",
+                        help="single=한 번에 등급 물음, cascade=예/아니오 두 번 (3단계 전용)")
     parser.add_argument("--out", help="저장 경로 (기본: data/labeled/auto_labels.jsonl)")
     args = parser.parse_args()
 
@@ -151,6 +241,12 @@ def main() -> None:
 
     done_ids = {int(r["id"]) for r in load_jsonl(out_path)}
     todo = [a for a in articles if int(a["id"]) not in done_ids]
+    if args.only_labeled:
+        human_ids = {int(r["id"]) for r in load_jsonl(LABELED_PATH)}
+        if not human_ids:
+            print(f"사람 라벨이 없습니다. ({LABELED_PATH})")
+            return
+        todo = [a for a in todo if int(a["id"]) in human_ids]
     if args.limit:
         todo = todo[:args.limit]
 
@@ -167,14 +263,20 @@ def main() -> None:
 
     with out_path.open("a", encoding="utf-8") as out:
         for i, article in enumerate(todo, start=1):
-            prompt = PROMPT.format(
+            prompt = "" if args.strategy == "cascade" else PROMPT.format(
                 category=article.get("category", ""),
                 title=article["title"],
                 body=(article.get("body") or "")[:args.body_chars],
             )
             try:
-                raw = ask_ollama(args.url, args.model, prompt, args.timeout)
-                label = parse_label(raw)
+                if args.strategy == "cascade":
+                    label = label_by_cascade(
+                        args.url, args.model, article, args.body_chars, args.timeout
+                    )
+                    raw = ""
+                else:
+                    raw = ask_ollama(args.url, args.model, prompt, args.timeout)
+                    label = parse_label(raw)
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
                 print(f"  [{i}] 요청 실패: {exc}")
                 failed += 1
