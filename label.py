@@ -1,9 +1,13 @@
 """기사에 중요도 0~4 라벨을 직접 매기는 CLI 도구.
 
-여기서 만든 라벨은 **모델 성능을 재는 정답지(gold)** 로 쓰인다.
+여기서 만든 라벨만이 **모델 성능을 재는 정답지(gold)** 자격을 갖는다.
+모든 행에 origin="human" 과 당시 기준 문서의 해시를 함께 남긴다 —
+나중에 "이 라벨을 누가 무슨 기준으로 매겼나"를 되짚을 수 없으면 정답지로 못 쓴다.
 한 건 매길 때마다 즉시 저장되므로 Ctrl+C 로 끊고 나중에 이어서 해도 된다.
 
     python3 label.py                # 무작위 순서로 라벨링
+    python3 label.py --exclude-seed # 백엔드 시드에 없는 기사만 (정답지용)
+    python3 label.py --only-seed    # 백엔드 시드에 있는 기사만 (시드 품질 대조용)
     python3 label.py --review       # LLM이 매긴 라벨을 보고 검수(맞으면 Enter)
     python3 label.py --stats        # 분포만 확인
     python3 label.py --category 정치
@@ -16,12 +20,25 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 from collections import Counter
 from datetime import datetime, timezone
 
-from config import AUTO_LABEL_PATH, LABEL_NAMES, LABELED_PATH, NUM_LABELS, RAW_PATH, ROOT, SEED
+from config import (
+    AUTO_LABEL_PATH,
+    BACKEND_LABEL_PATH,
+    HUMAN_ORIGIN,
+    LABEL_NAMES,
+    LABELED_PATH,
+    NUM_LABELS,
+    RAW_PATH,
+    ROOT,
+    SEED,
+)
+
+GUIDE_PATH = ROOT / "LABELING_GUIDE.md"
 
 VALID_KEYS = {str(i) for i in LABEL_NAMES}
 KEY_HINT = " / ".join(f"{i} {name}" for i, name in sorted(LABEL_NAMES.items(), reverse=True))
@@ -47,6 +64,13 @@ def append_label(row: dict) -> None:
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def guide_sha() -> str:
+    """라벨을 매길 때 적용한 기준 문서의 판본. 기준이 바뀌면 라벨도 다시 봐야 한다."""
+    if not GUIDE_PATH.exists():
+        return "none"
+    return hashlib.sha1(GUIDE_PATH.read_bytes()).hexdigest()[:8]
+
+
 def print_stats(labels: list[dict]) -> None:
     if not labels:
         print("아직 라벨이 없습니다.")
@@ -61,6 +85,12 @@ def print_stats(labels: list[dict]) -> None:
     weak = [lv for lv in LABEL_NAMES if counts.get(lv, 0) < 30]
     if weak:
         print(f"\n  ⚠ 30건 미만 등급: {weak} — 이 등급은 평가 신뢰도가 낮습니다.")
+
+    origins = Counter(row.get("origin", "unknown") for row in labels)
+    if set(origins) - {HUMAN_ORIGIN}:
+        print("\n  출처별: " + ", ".join(f"{k} {v}건" for k, v in origins.most_common()))
+        print(f"  ⚠ origin={HUMAN_ORIGIN} 이 아닌 행은 test 에 들어가지 않습니다. "
+              f"`python3 import_labels.py --migrate` 로 정리하세요.")
 
 
 def show_article(article: dict, idx: int, total: int, done: int, suggested: int | None) -> None:
@@ -94,6 +124,11 @@ def main() -> None:
                         help="LLM 자동 라벨을 제안으로 띄우고 검수 (Enter로 인정)")
     parser.add_argument("--stats", action="store_true", help="라벨 분포만 출력")
     parser.add_argument("--category", help="특정 카테고리만")
+    seed_group = parser.add_mutually_exclusive_group()
+    seed_group.add_argument("--exclude-seed", action="store_true",
+                            help="백엔드 시드에 없는 기사만 — 오염 없는 정답지를 만들 때")
+    seed_group.add_argument("--only-seed", action="store_true",
+                            help="백엔드 시드에 있는 기사만 — 시드 라벨이 사람과 얼마나 맞는지 재려고")
     parser.add_argument("--limit", type=int, help="이번 세션에서 라벨할 최대 건수")
     parser.add_argument("--no-shuffle", action="store_true", help="파일 순서대로 (기본은 무작위)")
     args = parser.parse_args()
@@ -110,6 +145,8 @@ def main() -> None:
 
     suggestions: dict[int, int] = {}
     if args.review:
+        print("\n⚠ --review 는 LLM 라벨을 먼저 보여줍니다. 그 숫자에 끌려가기 때문에")
+        print("  여기서 나온 라벨은 독립적인 정답지가 아닙니다. 정답지를 만드는 중이면 끄세요.\n")
         suggestions = {int(r["id"]): int(r["label"]) for r in load_jsonl(AUTO_LABEL_PATH)}
         if not suggestions:
             print(f"자동 라벨이 없습니다. `python3 autolabel.py` 를 먼저 실행하세요. ({AUTO_LABEL_PATH})")
@@ -119,6 +156,14 @@ def main() -> None:
     todo = [a for a in articles if int(a["id"]) not in labeled_ids]
     if args.category:
         todo = [a for a in todo if a.get("category") == args.category]
+    if args.exclude_seed or args.only_seed:
+        seed_ids = {int(r["id"]) for r in load_jsonl(BACKEND_LABEL_PATH)}
+        if not seed_ids:
+            print(f"백엔드 시드 라벨이 없습니다. ({BACKEND_LABEL_PATH})")
+            return
+        todo = [a for a in todo
+                if (int(a["id"]) in seed_ids) == bool(args.only_seed)]
+        print(f"\n시드 필터 적용: {'시드에 있는' if args.only_seed else '시드에 없는'} 기사 {len(todo)}건")
     if args.review:
         todo = [a for a in todo if int(a["id"]) in suggestions]
 
@@ -137,6 +182,7 @@ def main() -> None:
 
     done = len(labels)
     session_rows: list[dict] = []
+    guide = guide_sha()
 
     for idx, article in enumerate(todo, start=1):
         aid = int(article["id"])
@@ -162,7 +208,7 @@ def main() -> None:
             if key == "s":
                 break
             if key == "g":
-                print("\n" + (ROOT / "LABELING_GUIDE.md").read_text(encoding="utf-8"))
+                print("\n" + GUIDE_PATH.read_text(encoding="utf-8"))
                 continue
             if key == "u":
                 if not session_rows:
@@ -181,6 +227,8 @@ def main() -> None:
                     "title": article["title"],
                     "category": article.get("category", ""),
                     "labeled_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    "origin": HUMAN_ORIGIN,
+                    "guide": guide,
                 }
                 if suggested is not None:
                     row["llm_label"] = suggested

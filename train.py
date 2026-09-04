@@ -20,6 +20,8 @@ from sklearn.metrics import (
     cohen_kappa_score,
     confusion_matrix,
     f1_score,
+    precision_score,
+    recall_score,
 )
 from torch.utils.data import Dataset
 from transformers import (
@@ -33,6 +35,7 @@ from transformers import (
 
 from config import (
     BASE_MODEL,
+    SERVE_TOP_N,
     BATCH_SIZE_CPU,
     BATCH_SIZE_GPU,
     EPOCHS,
@@ -100,14 +103,26 @@ def load_split(name: str) -> list[dict]:
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
     preds = np.argmax(logits, axis=-1)
-    return {
+    metrics = {
         "accuracy": accuracy_score(labels, preds),
         "macro_f1": f1_score(labels, preds, average="macro", zero_division=0),
-        # 0~4는 순서가 있는 등급이라 "1칸 차이"와 "4칸 차이"를 구분해야 한다 → QWK
-        "qwk": cohen_kappa_score(labels, preds, weights="quadratic"),
-        # 인접 등급까지 맞다고 치는 관대한 정확도 (실사용 체감에 가까움)
-        "adjacent_accuracy": float(np.mean(np.abs(preds - labels) <= 1)),
     }
+    if NUM_LABELS == 2:
+        # 이진에서는 '중요'로 뽑은 것 중 몇 개가 맞았나(precision)가 서비스 체감을 지배한다.
+        # 메인에 SERVE_TOP_N 건만 노출하므로 확률 상위 N건의 정확도를 함께 잰다.
+        metrics["precision"] = precision_score(labels, preds, pos_label=1, zero_division=0)
+        metrics["recall"] = recall_score(labels, preds, pos_label=1, zero_division=0)
+        metrics["f1"] = f1_score(labels, preds, pos_label=1, zero_division=0)
+        scores = logits[:, 1] - logits[:, 0]
+        n = min(SERVE_TOP_N, len(labels))
+        top = np.argsort(-scores)[:n]
+        metrics[f"precision_at_{SERVE_TOP_N}"] = float(np.mean(labels[top] == 1)) if n else 0.0
+    else:
+        # 순서가 있는 등급이라 "1칸 차이"와 "여러 칸 차이"를 구분해야 한다 → QWK
+        metrics["qwk"] = cohen_kappa_score(labels, preds, weights="quadratic")
+        # 인접 등급까지 맞다고 치는 관대한 정확도 (실사용 체감에 가까움)
+        metrics["adjacent_accuracy"] = float(np.mean(np.abs(preds - labels) <= 1))
+    return metrics
 
 
 def class_weights_from(rows: list[dict]) -> torch.Tensor:
@@ -130,7 +145,8 @@ def build_training_args(output_dir, batch_size: int, use_fp16: bool, args) -> Tr
         logging_steps=20,
         save_total_limit=2,
         load_best_model_at_end=True,
-        metric_for_best_model="macro_f1",
+        # 이진에서 macro_f1 은 다수 클래스(0)에 끌려간다. 우리가 신경 쓰는 건 '중요' 쪽이다.
+        metric_for_best_model="f1" if NUM_LABELS == 2 else "macro_f1",
         greater_is_better=True,
         fp16=use_fp16,
         seed=args.seed,
@@ -204,7 +220,10 @@ def main() -> None:
 
     print("\n=== test 평가 ===")
     metrics = trainer.evaluate(datasets["test"], metric_key_prefix="test")
-    for key in ("test_accuracy", "test_macro_f1", "test_qwk", "test_adjacent_accuracy"):
+    keys = (("test_accuracy", "test_macro_f1", "test_precision", "test_recall", "test_f1",
+             f"test_precision_at_{SERVE_TOP_N}") if NUM_LABELS == 2
+            else ("test_accuracy", "test_macro_f1", "test_qwk", "test_adjacent_accuracy"))
+    for key in keys:
         if key in metrics:
             print(f"  {key:<24} {metrics[key]:.4f}")
 
