@@ -1,10 +1,11 @@
-"""KoELECTRA 를 뉴스 중요도 5단계 분류로 파인튜닝한다.
+"""KoELECTRA 를 뉴스 중요도 분류로 파인튜닝한다. 등급 수는 config.LABEL_SCHEME 을 따른다.
 
     python3 train.py                      # 기본 설정 (GPU 자동 감지)
     python3 train.py --epochs 8 --lr 2e-5
     python3 train.py --no-class-weights   # 클래스 가중치 끄기
 
-학습이 끝나면 models/koelectra-importance/ 에 최종 모델과 test 평가 결과가 저장된다.
+학습이 끝나면 models/muni/ 에 최종 모델과 test 평가 결과가 저장된다 (이름은 config.MODEL_NAME).
+같은 이름으로 다시 학습하면 덮어쓰므로, 판본을 남기려면 --output 을 따로 준다.
 """
 from __future__ import annotations
 

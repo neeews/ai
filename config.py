@@ -15,7 +15,12 @@ HUMAN_ORIGIN = "human"
 # 2026-09-02 c616972 커밋 기준 claude-opus-5 가 매겼고, 사람 검수는 거치지 않았다.
 BACKEND_LABELED_BY = "claude-opus-5"
 SPLIT_DIR = DATA_DIR / "splits"
-MODEL_DIR = ROOT / "models" / "koelectra-importance"
+
+# 학습시킨 모델의 이름. 폴더명·로그·서빙에서 이 이름 하나로 부른다.
+# 여러 판본을 비교할 거면 MODEL_NAME 에 판본을 달아라 (예: "muni-v2").
+# 그냥 두면 다시 학습할 때 같은 폴더를 덮어써서 이전 모델이 사라진다.
+MODEL_NAME = "muni"
+MODEL_DIR = ROOT / "models" / MODEL_NAME
 
 # KoELECTRA v3 discriminator. GPU 없는 VPS라면 --model 로 small 을 지정해 속도를 5배쯤 올릴 수 있다.
 BASE_MODEL = "monologg/koelectra-base-v3-discriminator"
